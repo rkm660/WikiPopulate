@@ -7,19 +7,22 @@ var cheerio = require('cheerio')
 mongoose.connect(dbConfig.url);
 
 
-function getArticle(article_url) {
+function saveArticle(article_url) {
     return new Promise(function(resolve, reject) {
         request("https://en.wikipedia.org" + article_url, function(error, response, body) {
             if (error)
                 reject(error);
             let $ = cheerio.load(body);
-            let object = {};
             let title = $("title").text();
-            object["url"] = response.request.uri.href;
-            object["title"] = title.substring(0, title.length - 12);
-            object["length"] = body.length;
-            object["timestamp_inserted"] = Date.now();
-            resolve(object);
+            let newArticle = new Article();
+            newArticle.title = title.substring(0, title.length - 12);
+            newArticle.url = response.request.uri.href;
+            newArticle.length = body.length;
+            newArticle.timestamp_inserted = Date.now();
+            newArticle.save(function(err) {
+                if (!err)
+                    resolve(newArticle);
+            });
         });
     });
 }
@@ -31,47 +34,42 @@ function getArticlesFromPage(page_url) {
                 reject(err);
             let $ = cheerio.load(body);
             let articles = [];
+            let next_page;
             $('.mw-allpages-chunk').find('li > a').each(function(index, element) {
                 let url = $(this).attr('href')
-                articles.push(getArticle(url));
+                articles.push(saveArticle(url));
             });
-            resolve(articles);
+            $('.mw-allpages-nav').find('a').each(function(index, element) {
+                let url = $(this);
+                if (url.text().indexOf("Next page") != -1) {
+                    next_page = url.attr('href');
+                    console.log(next_page);
+                }
+            });
+            resolve({ "articles": articles, "next_page": next_page });
         });
     });
 
 }
 
+/*
 function getLatestTitle() {
     return new Promise(function(resolve, reject) {
-        Article.findOne({}).sort({"timestamp": -1}).exec(function(err, article) {
+        Article.findOne({}).sort({ "timestamp": -1 }).exec(function(err, article) {
             if (err) reject(err);
             resolve(article);
         });
     });
+}*/
 
 
-}
+function run(page_url) {
 
-function saveArticle(url) {
-
-}
-
-
-function run() {
-
-    getArticlesFromPage("https://en.wikipedia.org/wiki/Special:AllPages?from=&to=&namespace=0").then(function(articlePromises) {
-
-        Promise.all(articlePromises)
-            .then(function(articles) {
-                articles.forEach(function(item) {
-                    console.log(item);
-                });
-            })
-            .catch(function(err) {
-                // Will catch failure of first failed promise
-                console.log("Failed:", err);
-            });
+    getArticlesFromPage(page_url).then(function(articlesObject) {
+        articlesObject["articles"].reduce((p, f) => p.then(f), Promise.resolve().then(function() {
+            run("https://en.wikipedia.org" + articlesObject["next_page"]);
+        }));
     });
 }
 
-run();
+run("https://en.wikipedia.org/wiki/Special:AllPages?from=&to=&namespace=0");
