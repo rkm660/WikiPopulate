@@ -1,3 +1,4 @@
+"use strict";
 var request = require('request');
 var dbConfig = require('./dbConfig.js');
 var mongoose = require('mongoose');
